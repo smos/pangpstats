@@ -1,0 +1,121 @@
+#!/usr/bin/env php
+<?php
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use App\PaloAltoClient;
+use App\GeoMapping;
+use App\StatsProcessor;
+use App\EmailReporter;
+
+function loadEnv($path)
+{
+    if (!file_exists($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue;
+        list($name, $value) = explode('=', $line, 2);
+        putenv(trim($name) . '=' . trim($value));
+    }
+}
+
+loadEnv(__DIR__ . '/../.env');
+
+$fwHost = getenv('PAN_FW_URL');
+$apiKey = getenv('PAN_API_KEY');
+$geoUrl = getenv('ISERV_GEO_URL') ?: 'https://iserv.nl/files/edl/out/country/';
+$cacheDir = __DIR__ . '/../data/geo/';
+$dataDir = __DIR__ . '/../data/';
+
+if (!$fwHost || !$apiKey) {
+    echo "Error: PAN_FW_URL and PAN_API_KEY must be set in .env\n";
+    exit(1);
+}
+
+$days = 1;
+$forceDays = false;
+$sendEmail = false;
+foreach ($argv as $i => $arg) {
+    if ($arg === '--days' && isset($argv[$i+1])) {
+        $days = (int)$argv[$i+1];
+    }
+    if ($arg === '--force-days') {
+        $forceDays = true;
+    }
+    if ($arg === '--email') {
+        $sendEmail = true;
+    }
+}
+
+$geoMapping = new GeoMapping($geoUrl, $cacheDir);
+
+// Check if we need to update geo cache
+if (in_array('--update-geo', $argv)) {
+    echo "Updating geo cache from $geoUrl...\n";
+    $geoMapping->updateAllCountries();
+    echo "Update complete.\n";
+}
+
+// Load existing geo cache
+echo "Loading geo mapping...\n";
+$geoMapping->loadAll();
+
+$client = new PaloAltoClient($fwHost, $apiKey);
+$processor = new StatsProcessor($geoMapping, $dataDir);
+
+$lastTs = $processor->getLastTimestamp();
+if ($lastTs && !$forceDays) {
+    echo "Resuming fetch from last record timestamp: " . date('Y-m-d H:i:s', $lastTs) . "\n";
+    $daysParam = 1; // Not used when lastTs is passed
+    $startTime = $lastTs;
+} else {
+    echo "Fetching logs for the last $days day(s)...\n";
+    $startTime = null;
+    $daysParam = $days;
+}
+
+try {
+    $entries = $client->getAllGlobalProtectLogs($daysParam, $startTime);
+    
+    echo "Processing " . count($entries) . " logs and mapping to geo-regions...\n";
+    $results = $processor->process($entries);
+    $processor->saveDailySummaries($results);
+
+    if (empty($results['days'])) {
+        echo "No new logs to process.\n";
+    }
+
+    foreach ($results['days'] as $date => $dayData) {
+        echo "\nSummary for $date:\n";
+        echo str_pad("Country", 10) . " | " . str_pad("Success", 10) . " | " . str_pad("Failure", 10) . " | " . str_pad("Unique Users", 12) . "\n";
+        echo str_repeat("-", 50) . "\n";
+        
+        foreach ($dayData['by_country'] as $country => $data) {
+            $userCount = count($data['unique_users']);
+            echo str_pad($country, 10) . " | " . str_pad($data['success'], 10) . " | " . str_pad($data['failure'], 10) . " | " . str_pad($userCount, 12) . "\n";
+        }
+
+        if (!empty($dayData['client_versions'])) {
+            echo "\nClient Version Distribution ($date):\n";
+            arsort($dayData['client_versions']);
+            foreach ($dayData['client_versions'] as $ver => $count) {
+                echo str_pad($ver, 15) . " : $count\n";
+            }
+        }
+    }
+
+    echo "\nStats saved to daily JSON files in data/\n";
+    if (!empty($results['unknown_ips'])) {
+        echo "Found " . count($results['unknown_ips']) . " unknown IPs. See data/unknown_ips.txt\n";
+    }
+
+    if ($sendEmail) {
+        echo "\nGenerating email report...\n";
+        $reporter = new EmailReporter($dataDir);
+        $reporter->sendReport(7); // Last 7 days for the trend
+    }
+
+} catch (\Exception $e) {
+    echo "Error: " . $e->getMessage() . "\n";
+    exit(1);
+}

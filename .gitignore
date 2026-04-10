@@ -1,0 +1,13 @@
+.env
+vendor/
+data/*
+!data/.gitkeep
+!data/geo/
+data/geo/*
+!data/geo/.gitkeep
+!data/logs/
+data/logs/*
+!data/logs/.gitkeep
+!data/tmp_test/
+data/tmp_test/*
+!data/tmp_test/.gitkeep

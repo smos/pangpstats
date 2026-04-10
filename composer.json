@@ -1,0 +1,13 @@
+{
+    "name": "smos/pangpstats",
+    "description": "Fetch Palo Alto GlobalProtect stats and map to geo region",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=7.4",
+        "phpmailer/phpmailer": "^6.8"
+    }
+}
