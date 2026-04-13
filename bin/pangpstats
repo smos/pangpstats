@@ -112,7 +112,7 @@ try {
     if ($sendEmail) {
         echo "\nGenerating email report...\n";
         $reporter = new EmailReporter($dataDir);
-        $reporter->sendReport(7); // Last 7 days for the trend
+        $reporter->sendReport($days);
     }
 
 } catch (\Exception $e) {

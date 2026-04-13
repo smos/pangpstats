@@ -117,7 +117,20 @@ class EmailReporter
 
             // Recipients
             $mail->setFrom($this->from, 'PangPstats');
-            $mail->addAddress($this->recipient);
+            $recipients = preg_split('/[;,]/', $this->recipient);
+            $addedCount = 0;
+            foreach ($recipients as $recipient) {
+                $recipient = trim($recipient);
+                if ($recipient && filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+                    $mail->addAddress($recipient);
+                    $addedCount++;
+                }
+            }
+
+            if ($addedCount === 0) {
+                echo "Warning: No valid recipients found in REPORT_RECIPIENT. Skipping email report.\n";
+                return;
+            }
 
             // Content
             $mail->isHTML(true);
@@ -133,31 +146,45 @@ class EmailReporter
 
     private function generateChartUrl(array $trendData): string
     {
+        $daysCount = count($trendData['labels']);
+        $title = "GlobalProtect Auth Trend (Last $daysCount Days)";
+        if ($daysCount === 1) {
+            $title = "GlobalProtect Auth - " . ($trendData['labels'][0] ?? 'Daily Stats');
+        }
+
         $config = [
-            'type' => 'line',
+            'type' => 'bar',
             'data' => [
                 'labels' => $trendData['labels'],
                 'datasets' => [
                     [
                         'label' => 'Auth Failures',
                         'data' => $trendData['failures'],
-                        'borderColor' => 'rgb(220, 53, 69)', // Red
-                        'backgroundColor' => 'rgba(220, 53, 69, 0.1)',
-                        'fill' => false,
+                        'backgroundColor' => 'rgba(220, 53, 69, 0.7)', // Red
+                        'borderColor' => 'rgb(220, 53, 69)',
+                        'borderWidth' => 1
                     ],
                     [
                         'label' => 'Unique Users',
                         'data' => $trendData['unique_users'],
-                        'borderColor' => 'rgb(0, 123, 255)', // Blue
-                        'backgroundColor' => 'rgba(0, 123, 255, 0.1)',
-                        'fill' => false,
+                        'backgroundColor' => 'rgba(0, 123, 255, 0.7)', // Blue
+                        'borderColor' => 'rgb(0, 123, 255)',
+                        'borderWidth' => 1
                     ]
                 ]
             ],
             'options' => [
                 'title' => [
                     'display' => true,
-                    'text' => 'GlobalProtect Auth Trend (Last 7 Days)'
+                    'text' => $title
+                ],
+                'scales' => [
+                    'yAxes' => [[
+                        'ticks' => [
+                            'beginAtZero' => true,
+                            'precision' => 0
+                        ]
+                    ]]
                 ]
             ]
         ];
