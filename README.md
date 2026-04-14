@@ -11,7 +11,7 @@ A PHP CLI application to fetch GlobalProtect gateway statistics and track succes
 2. Update `.env` with your firewall URL and API key.
 3. Install dependencies:
    ```bash
-   composer dump-autoload
+   composer install
    ```
 4. Update the geo-location cache (first run):
    ```bash
