@@ -35,6 +35,18 @@ if (!$fwHost || !$apiKey) {
 $days = 1;
 $forceDays = false;
 $sendEmail = false;
+
+if (in_array('--help', $argv) || in_array('-h', $argv)) {
+    echo "Usage: bin/pangpstats [options]\n";
+    echo "\nOptions:\n";
+    echo "  --days <number>     Number of days to fetch logs for (default: 1)\n";
+    echo "  --force-days        Force fetching logs for the specified days, ignoring last timestamp\n";
+    echo "  --email             Send an email report\n";
+    echo "  --update-geo        Manually update the geo mapping cache\n";
+    echo "  --help, -h          Show this help message\n";
+    exit(0);
+}
+
 foreach ($argv as $i => $arg) {
     if ($arg === '--days' && isset($argv[$i+1])) {
         $days = (int)$argv[$i+1];
@@ -50,8 +62,13 @@ foreach ($argv as $i => $arg) {
 $geoMapping = new GeoMapping($geoUrl, $cacheDir);
 
 // Check if we need to update geo cache
-if (in_array('--update-geo', $argv)) {
-    echo "Updating geo cache from $geoUrl...\n";
+$geoFiles = glob($cacheDir . "*.txt");
+if (in_array('--update-geo', $argv) || empty($geoFiles)) {
+    if (empty($geoFiles)) {
+        echo "No geo data found. Triggering initial download...\n";
+    } else {
+        echo "Updating geo cache from $geoUrl...\n";
+    }
     $geoMapping->updateAllCountries();
     echo "Update complete.\n";
 }
