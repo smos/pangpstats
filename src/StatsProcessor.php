@@ -83,7 +83,10 @@ class StatsProcessor
             $activeIp = ($ip && $ip !== '0.0.0.0') ? $ip : $ipv6;
             
             if ($activeIp && filter_var($activeIp, FILTER_VALIDATE_IP)) {
-                $country = $this->geoMapping->getCountryForIP($activeIp);
+                $loc = $this->geoMapping->getLocation($activeIp);
+                $country = $loc['country'];
+                $isp = $loc['isp'];
+
                 if ($country === 'Unknown') {
                     $unknownIps[$activeIp] = true;
                 }
@@ -92,17 +95,27 @@ class StatsProcessor
                     $statsByDay[$date]['by_country'][$country] = [
                         'success' => 0, 
                         'failure' => 0, 
-                        'unique_users' => []
+                        'unique_users' => [],
+                        'isps' => []
+                    ];
+                }
+
+                if (!isset($statsByDay[$date]['by_country'][$country]['isps'][$isp])) {
+                    $statsByDay[$date]['by_country'][$country]['isps'][$isp] = [
+                        'success' => 0,
+                        'failure' => 0
                     ];
                 }
 
                 if ($status === 'success') {
                     $statsByDay[$date]['by_country'][$country]['success']++;
+                    $statsByDay[$date]['by_country'][$country]['isps'][$isp]['success']++;
                     if ($user) {
                         $statsByDay[$date]['by_country'][$country]['unique_users'][$user] = true;
                     }
                 } else {
                     $statsByDay[$date]['by_country'][$country]['failure']++;
+                    $statsByDay[$date]['by_country'][$country]['isps'][$isp]['failure']++;
                     // Track failure types
                     $failureType = (string)($entry->error ?: $entry->description ?: 'Unknown');
                     if (!isset($statsByDay[$date]['failure_types'][$failureType])) {
@@ -151,7 +164,8 @@ class StatsProcessor
                     $currentData['countries'][$country] = [
                         'success' => 0, 
                         'failure' => 0, 
-                        'users' => []
+                        'users' => [],
+                        'isps' => []
                     ];
                 }
                 $currentData['countries'][$country]['success'] += $data['success'];
@@ -159,6 +173,15 @@ class StatsProcessor
                 
                 foreach ($data['unique_users'] as $user => $val) {
                     $currentData['countries'][$country]['users'][$user] = true;
+                }
+
+                // Merge ISP data
+                foreach (($data['isps'] ?? []) as $isp => $ispStats) {
+                    if (!isset($currentData['countries'][$country]['isps'][$isp])) {
+                        $currentData['countries'][$country]['isps'][$isp] = ['success' => 0, 'failure' => 0];
+                    }
+                    $currentData['countries'][$country]['isps'][$isp]['success'] += $ispStats['success'];
+                    $currentData['countries'][$country]['isps'][$isp]['failure'] += $ispStats['failure'];
                 }
             }
 

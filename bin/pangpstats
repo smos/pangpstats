@@ -23,7 +23,7 @@ loadEnv(__DIR__ . '/../.env');
 
 $fwHost = getenv('PAN_FW_URL');
 $apiKey = getenv('PAN_API_KEY');
-$geoUrl = getenv('ISERV_GEO_URL') ?: 'https://iserv.nl/files/edl/out/country/';
+$geoUrl = getenv('GEO_SOURCE_URL') ?: 'https://github.com/iplocate/ip-address-databases/raw/main/ip-to-asn/ip-to-asn.csv.zip';
 $cacheDir = __DIR__ . '/../data/geo/';
 $dataDir = __DIR__ . '/../data/';
 
@@ -62,20 +62,30 @@ foreach ($argv as $i => $arg) {
 $geoMapping = new GeoMapping($geoUrl, $cacheDir);
 
 // Check if we need to update geo cache
-$geoFiles = glob($cacheDir . "*.txt");
-if (in_array('--update-geo', $argv) || empty($geoFiles)) {
-    if (empty($geoFiles)) {
+$cacheFile = $cacheDir . 'geo_cache.php';
+if (in_array('--update-geo', $argv) || !file_exists($cacheFile)) {
+    if (!file_exists($cacheFile)) {
         echo "No geo data found. Triggering initial download...\n";
     } else {
         echo "Updating geo cache from $geoUrl...\n";
     }
-    $geoMapping->updateAllCountries();
-    echo "Update complete.\n";
+    try {
+        $geoMapping->updateData();
+        echo "Update complete.\n";
+    } catch (\Exception $e) {
+        echo "Error updating geo data: " . $e->getMessage() . "\n";
+        exit(1);
+    }
 }
 
 // Load existing geo cache
 echo "Loading geo mapping...\n";
 $geoMapping->loadAll();
+
+if (!$geoMapping->isLoaded()) {
+    echo "Error: Geo mapping not loaded. Run with --update-geo to download data.\n";
+    exit(1);
+}
 
 $client = new PaloAltoClient($fwHost, $apiKey);
 $processor = new StatsProcessor($geoMapping, $dataDir);
@@ -104,12 +114,21 @@ try {
 
     foreach ($results['days'] as $date => $dayData) {
         echo "\nSummary for $date:\n";
-        echo str_pad("Country", 10) . " | " . str_pad("Success", 10) . " | " . str_pad("Failure", 10) . " | " . str_pad("Unique Users", 12) . "\n";
-        echo str_repeat("-", 50) . "\n";
+        echo str_pad("Country / ISP", 30) . " | " . str_pad("Success", 10) . " | " . str_pad("Failure", 10) . " | " . str_pad("Unique Users", 12) . "\n";
+        echo str_repeat("-", 70) . "\n";
         
         foreach ($dayData['by_country'] as $country => $data) {
             $userCount = count($data['unique_users']);
-            echo str_pad($country, 10) . " | " . str_pad($data['success'], 10) . " | " . str_pad($data['failure'], 10) . " | " . str_pad($userCount, 12) . "\n";
+            echo str_pad($country, 30) . " | " . str_pad($data['success'], 10) . " | " . str_pad($data['failure'], 10) . " | " . str_pad($userCount, 12) . "\n";
+            
+            if (!empty($data['isps'])) {
+                uasort($data['isps'], function($a, $b) {
+                    return ($b['success'] + $b['failure']) <=> ($a['success'] + $a['failure']);
+                });
+                foreach ($data['isps'] as $isp => $ispStats) {
+                    echo str_pad("  - " . substr($isp, 0, 25), 30) . " | " . str_pad($ispStats['success'], 10) . " | " . str_pad($ispStats['failure'], 10) . " | " . str_pad("-", 12) . "\n";
+                }
+            }
         }
 
         if (!empty($dayData['client_versions'])) {

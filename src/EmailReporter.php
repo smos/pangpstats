@@ -236,12 +236,25 @@ class EmailReporter
                                     return ($b['success'] + $b['failure']) <=> ($a['success'] + $a['failure']);
                                 });
                                 foreach ($countryStats as $country => $stats): ?>
-                                    <tr>
+                                    <tr style="background-color: #fcfcfc;">
                                         <td><strong><?php echo $country; ?></strong></td>
                                         <td align="right"><?php echo number_format($stats['success']); ?></td>
                                         <td align="right"><?php echo number_format($stats['failure']); ?></td>
                                         <td align="right"><?php echo count($stats['users'] ?? []); ?></td>
                                     </tr>
+                                    <?php if (!empty($stats['isps'])): 
+                                        uasort($stats['isps'], function($a, $b) {
+                                            return ($b['success'] + $b['failure']) <=> ($a['success'] + $a['failure']);
+                                        });
+                                        foreach ($stats['isps'] as $isp => $ispStats): ?>
+                                        <tr style="color: #666; font-size: 0.85em;">
+                                            <td style="padding-left: 20px;">&bull; <?php echo htmlspecialchars($isp); ?></td>
+                                            <td align="right"><?php echo number_format($ispStats['success']); ?></td>
+                                            <td align="right"><?php echo number_format($ispStats['failure']); ?></td>
+                                            <td align="right">-</td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>

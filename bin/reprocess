@@ -1,0 +1,143 @@
+#!/usr/bin/env php
+<?php
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use App\GeoMapping;
+use App\StatsProcessor;
+
+function loadEnv($path)
+{
+    if (!file_exists($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue;
+        list($name, $value) = explode('=', $line, 2);
+        putenv(trim($name) . '=' . trim($value));
+    }
+}
+
+loadEnv(__DIR__ . '/../.env');
+
+$geoUrl = getenv('GEO_SOURCE_URL') ?: 'https://github.com/iplocate/ip-address-databases/raw/main/ip-to-asn/ip-to-asn.csv.zip';
+$cacheDir = __DIR__ . '/../data/geo/';
+$dataDir = __DIR__ . '/../data/';
+$logsDir = $dataDir . 'logs/';
+
+$geoMapping = new GeoMapping($geoUrl, $cacheDir);
+$geoMapping->loadAll();
+
+if (!$geoMapping->isLoaded()) {
+    echo "Error: Geo mapping not loaded. Run bin/pangpstats --update-geo first.\n";
+    exit(1);
+}
+
+$processor = new StatsProcessor($geoMapping, $dataDir);
+
+echo "Starting reprocessing of raw logs...\n";
+
+$logFiles = glob($logsDir . "*.json");
+sort($logFiles);
+
+foreach ($logFiles as $file) {
+    $date = basename($file, '.json');
+    if ($date === '.gitkeep') continue;
+    
+    echo "Processing $date...\n";
+    $rawLogs = json_decode(file_get_contents($file), true);
+    if (!$rawLogs) continue;
+
+    // Convert array back to SimpleXMLElement-like structure if needed, 
+    // but StatsProcessor->process expects an array of entries.
+    // However, raw logs are saved as arrays of attributes/values.
+    
+    // We need to slightly adapt or mock the log entries for the processor
+    // since it expects SimpleXMLElement or similar access.
+    // Let's create a wrapper or just use a simplified loop.
+    
+    $stats = [
+        'by_country' => [],
+        'client_versions' => [],
+        'failure_types' => []
+    ];
+
+    foreach ($rawLogs as $log) {
+        // StatsProcessor logic extracted and simplified for array data
+        $ip = $log['public_ip'] ?? '';
+        $ipv6 = $log['public_ipv6'] ?? '';
+        $user = $log['srcuser'] ?? '';
+        $version = $log['client_ver'] ?? 'Unknown';
+        $status = strtolower($log['status'] ?? '');
+        $description = strtolower($log['description'] ?? $log['error'] ?? '');
+
+        if ($status === 'cookie expired' || 
+            strpos($description, 'cookie expired') !== false ||
+            strpos($description, 'ip address change') !== false ||
+            strpos($description, 'client ip changed') !== false ||
+            strpos($description, 'authentication cookie usage is restricted to specified ip addresses') !== false
+        ) {
+            continue;
+        }
+
+        $activeIp = ($ip && $ip !== '0.0.0.0') ? $ip : $ipv6;
+        if ($activeIp && filter_var($activeIp, FILTER_VALIDATE_IP)) {
+            $loc = $geoMapping->getLocation($activeIp);
+            $country = $loc['country'];
+            $isp = $loc['isp'];
+
+            if (!isset($stats['by_country'][$country])) {
+                $stats['by_country'][$country] = [
+                    'success' => 0, 
+                    'failure' => 0, 
+                    'unique_users' => [],
+                    'isps' => []
+                ];
+            }
+
+            if (!isset($stats['by_country'][$country]['isps'][$isp])) {
+                $stats['by_country'][$country]['isps'][$isp] = ['success' => 0, 'failure' => 0];
+            }
+
+            if ($status === 'success') {
+                $stats['by_country'][$country]['success']++;
+                $stats['by_country'][$country]['isps'][$isp]['success']++;
+                if ($user) {
+                    $stats['by_country'][$country]['unique_users'][$user] = true;
+                }
+            } else {
+                $stats['by_country'][$country]['failure']++;
+                $stats['by_country'][$country]['isps'][$isp]['failure']++;
+                $failureType = $log['error'] ?? $log['description'] ?? 'Unknown';
+                if (!isset($stats['failure_types'][$failureType])) {
+                    $stats['failure_types'][$failureType] = 0;
+                }
+                $stats['failure_types'][$failureType]++;
+            }
+
+            if (!isset($stats['client_versions'][$version])) {
+                $stats['client_versions'][$version] = 0;
+            }
+            $stats['client_versions'][$version]++;
+        }
+    }
+
+    // Prepare for saving
+    $finalData = [
+        'countries' => [],
+        'client_versions' => $stats['client_versions'],
+        'failure_types' => $stats['failure_types']
+    ];
+
+    foreach ($stats['by_country'] as $country => $data) {
+        $finalData['countries'][$country] = [
+            'success' => $data['success'],
+            'failure' => $data['failure'],
+            'users' => $data['unique_users'],
+            'isps' => $data['isps']
+        ];
+    }
+
+    file_put_contents($dataDir . "{$date}.json", json_encode($finalData, JSON_PRETTY_PRINT));
+}
+
+echo "\nReprocessing complete. All daily summaries have been rebuilt with consistent ISP names.\n";
