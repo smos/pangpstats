@@ -135,24 +135,38 @@ class GeoMapping
         return $this->loaded;
     }
 
-    public function getLocation(string $ip): array
+    public function getLocation(string $ip, $panRegion = null): array
     {
-        if ($this->isLocalIP($ip)) {
-            return ['country' => 'Local', 'isp' => 'Internal Network'];
+        if ($panRegion instanceof \SimpleXMLElement) {
+            $panRegion = (string)$panRegion;
+        } elseif (!is_scalar($panRegion)) {
+            $panRegion = '';
         }
 
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return $this->searchIPv4($ip);
+        $panRegion = trim((string)$panRegion);
+        $panRegionLower = strtolower($panRegion);
+        $hasPanRegion = ($panRegion !== '' && $panRegionLower !== 'any' && $panRegionLower !== 'unknown');
+
+        if ($this->isLocalIP($ip)) {
+            $loc = ['country' => 'Local', 'isp' => 'Internal Network'];
+        } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $loc = $this->searchIPv4($ip);
         } elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
-            return $this->searchIPv6($ip);
+            $loc = $this->searchIPv6($ip);
+        } else {
+            $loc = ['country' => 'Unknown', 'isp' => 'Unknown'];
         }
-        
-        return ['country' => 'Unknown', 'isp' => 'Unknown'];
+
+        if ($hasPanRegion) {
+            $loc['country'] = strlen($panRegion) === 2 ? strtoupper($panRegion) : $panRegion;
+        }
+
+        return $loc;
     }
 
-    public function getCountryForIP(string $ip): string
+    public function getCountryForIP(string $ip, $panRegion = null): string
     {
-        $loc = $this->getLocation($ip);
+        $loc = $this->getLocation($ip, $panRegion);
         return $loc['country'];
     }
 

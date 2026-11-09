@@ -83,7 +83,10 @@ class StatsProcessor
             $activeIp = ($ip && $ip !== '0.0.0.0') ? $ip : $ipv6;
             
             if ($activeIp && filter_var($activeIp, FILTER_VALIDATE_IP)) {
-                $loc = $this->geoMapping->getLocation($activeIp);
+                $panRegion = is_array($entry)
+                    ? ($entry['srcregion'] ?? null)
+                    : ($entry->srcregion ?? null);
+                $loc = $this->geoMapping->getLocation($activeIp, $panRegion);
                 $country = $loc['country'];
                 $isp = $loc['isp'];
 

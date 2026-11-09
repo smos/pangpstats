@@ -81,7 +81,8 @@ foreach ($logFiles as $file) {
 
         $activeIp = ($ip && $ip !== '0.0.0.0') ? $ip : $ipv6;
         if ($activeIp && filter_var($activeIp, FILTER_VALIDATE_IP)) {
-            $loc = $geoMapping->getLocation($activeIp);
+            $panRegion = $log['srcregion'] ?? null;
+            $loc = $geoMapping->getLocation($activeIp, $panRegion);
             $country = $loc['country'];
             $isp = $loc['isp'];
 
